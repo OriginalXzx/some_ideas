@@ -1,0 +1,203 @@
+Lucene的基本概念
+ 
+Lucene是什么？
+    Lucene是一款高性能、可扩展的信息检索工具库。信息检索是指文档搜索、文档内信息搜索或者文档相关的元数据搜索等操作。
+ 
+信息检索流程如下：
+      1、 将即将检索的资源集合放到本地，并使用某种特定的结构存储，称为索引，这个索引的集合称为索引库。由于索引库的结构按照专门为快速查询设计的，所以查询的速度非常的快；
+ 
+      2、 搜索操作时都是在本地的索引库中进行查找；
+ 
+所以对于全文检索功能的开发，要做两方面：索引库管理（维护索引库中的数据）、在索引库中进行搜索。而Lucene就是操作索引库的工具；
+ 
+索引库是什么样子？
+      索引库是一个目录，里面是一些二级制文件，就如同数据库，所有的数据也是以文件的形式存放在文件系统中的。我们不能直接操作这些二级制文件，而是使用Lucene提供的API完成相应的操作，就像数据库使用SQL语句一样。
+对索引库的操作可以分为两种：管理与查询。
+   1、 管理索引库使用的IndexWriter；
+   2、从索引库中查询使用IndexSearcher。
+	Lucene的数据结构为 Document与Field。
+	Document代表是一条数据，Field代表数据中的一个属性。一个Document中有多个Field，Field的值为String型，因为Lucene只处理文本；
+	我们只需要把我们的程序中的对象转换为Doucemnt，就可以交给Lucene管理了，搜索的结果中的数据列表也是Document的集合；
+ 
+ 
+OK，我们来做一个实例，还原一下整个流程
+ 
+1、创建一个用户类，用于实例化用户数据
+ 
+ 
+Java代码  收藏代码
+public class User {  
+  
+    private Long id;  
+    private String name;  
+    private int age;  
+    private String sex;  
+    private Date birthday;  
+    public User(Long id, String name, int age, String sex, Date birthday) {  
+        super();  
+        this.id = id;  
+        this.name = name;  
+        this.age = age;  
+        this.sex = sex;  
+        this.birthday = birthday;  
+    }  
+   //get/set方法，这里省略  
+}  
+ 
+ 
+2、生成即将检索的资源数据
+ 
+ 
+Java代码  收藏代码
+public class DataUtil {  
+    /** 
+     * 检索资源数据的准备； 
+     *   这里的数据可以来源数据库、文件系统等 
+     * @return 
+     */  
+    public static List<User> getUsers(){  
+        List<User> list =new ArrayList<User>();  
+        User user =new User(1L,"张三1",20,"man",new Date());  
+        list.add(user);  
+        user =new User(2L,"张三2",20,"man",new Date());  
+        list.add(user);  
+        user =new User(3L,"张三3",20,"woman",new Date());  
+        list.add(user);  
+        user =new User(4L,"张三4",20,"man",new Date());  
+        list.add(user);  
+        user =new User(5L,"张三5",20,"man",new Date());  
+        list.add(user);  
+        user =new User(6L,"张三6",20,"woman",new Date());  
+        list.add(user);  
+        return list;  
+    }  
+}  
+ 
+3、Lucene创建索引库及查询
+ 
+ 
+Java代码  收藏代码
+public class IndexWriterDemo {  
+    /** 
+     * 将即将检索的资源写入索引库 
+     * @param writer 
+     * @throws Exception 
+     */  
+    public void buildDocs(IndexWriter writer)throws Exception {  
+        writer.deleteAll();//清空索引库里已存在的文档（document）  
+        List<User> list = DataUtil.getUsers();//得到数据资源  
+        System.out.println("buildDocs()->总人数为 :"+list.size());  
+        for(User user :list){  
+            Document doc = new Document();//创建索引库的文档  
+            doc.add(new Field("id",String.valueOf(user.getId()),Store.YES,Index.NO));  
+            doc.add(new Field("name",user.getName(),Store.YES,Index.ANALYZED));  
+            doc.add(new Field("age",String.valueOf(user.getAge()),Store.YES,Index.ANALYZED));  
+            doc.add(new Field("sex",user.getSex(),Store.YES,Index.ANALYZED));  
+            doc.add(new Field("birthday",String.valueOf(user.getBirthday()),Store.YES,Index.ANALYZED));  
+            writer.addDocument(doc);//将文档写入索引库  
+        }  
+        int count =writer.numDocs();  
+        writer.forceMerge(100);//合并索引库文件  
+        writer.close();  
+        System.out.println("buildDocs()->存入索引库的数量："+count);  
+    }  
+  
+    /** 
+     * 从索引库中搜索你要查询的数据 
+     * @param searcher 
+     * @throws IOException 
+     */  
+    public void searcherDocs(IndexSearcher searcher) throws IOException{  
+        Term term =new Term("sex", "man");//查询条件，意思是我要查找性别为“man”的人  
+        TermQuery query =new TermQuery(term);  
+        TopDocs docs =searcher.search(query, 100);//查找  
+        System.out.println("searcherDoc()->男生人数："+docs.totalHits);  
+        for(ScoreDoc doc:docs.scoreDocs){//获取查找的文档的属性数据  
+            int docID=doc.doc;  
+            Document document =searcher.doc(docID);  
+            String str="ID:"+document.get("id")+",姓名："+document.get("name")+"，性别："+document.get("sex");  
+            System.out.println("人员信息:"+str);  
+        }  
+    }  
+  }  
+ 
+ 
+4、测试
+ 
+ 
+Java代码  收藏代码
+public class TestIndexWriterRAMDirectory {  
+    private IndexWriter writer=null;  
+    private Directory directory=null;  
+    private IndexReader reader = null;  
+    private IndexSearcher searcher=null;  
+    private IndexWriterDemo demo =new IndexWriterDemo();  
+      
+    @Before  
+    public void setUp() throws Exception {  
+        directory = new RAMDirectory();  
+        IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_36,new SimpleAnalyzer(Version.LUCENE_36));  
+        writer = new IndexWriter(directory,config);  
+    }  
+  
+    @Test  
+    public void testAddDoc()throws Exception {  
+        /**生成索引库*/  
+        demo.buildDocs(writer);  
+          
+        /**查询数据*/  
+        reader = IndexReader.open(directory);  
+        searcher =new IndexSearcher(reader);  
+        demo.searcherDocs(searcher);  
+    }  
+}  
+ 
+测试结果
+ 
+ 
+Java代码  收藏代码
+buildDocs()->总人数为 :6  
+buildDocs()->存入索引库的数量：6  
+searcherDoc()->男生人数：4  
+人员信息:ID:1,姓名：张三1，性别：man  
+人员信息:ID:2,姓名：张三2，性别：man  
+人员信息:ID:4,姓名：张三4，性别：man  
+人员信息:ID:5,姓名：张三5，性别：man  
+ 
+ 
+ 
+OK，代码完毕
+ 
+实例的Lucene版本为：lucene-3.6.1
+ 
+在这再次说下Lucene检索的整个流程（请参考demo的代码）
+ 
+1、建立索引的执行过程 
+     在建立索引时，先要把文档存到索引库中，还要更新词汇表。
+操作步骤如下：
+（1）、把数据对象转换成相应的Document，其中的属性转为Field；
+（2）、调用工具IndexWriter的addDocument(doc)，把Document添加到索引库中；
+（3）、Lucene做的操作：
+       把文档存到索引库中，并自动指定一个内部编号，用来唯一标识这个条数据；内部编号类似与这条数据的地址，在索引库内部的数据进行调整后，这个编号就可能会改变，同时词汇表中的引用的编号也会做相应的改变，以保 证正确。
+      更新词汇表。把文本中的词找出来放到词汇表中，简历与文档的对应关系。要把那些词放到词汇表中呢？这就用到一个叫Analyzer（分词器）的工具。他的作用是把一段文本中的词按照规则取出所包含的所有词。对应的是Analyzer类，这是一个抽象类，切分词的具体规则是由其子类实现。
+ 
+在把对象的属性转化为 Field时，相关代码为：
+   doc.add(new Field(“title”,article.getTitle(), Store.YES, Index.Analyzed))
+	其中第三个参数的意思为
+		Store.NO 不存储属性的值；
+		Store.YES 存储属性的值
+ 
+	第四个参数
+		Index.NO 不建立索引
+		Index.ANALYZED 分词后建立索引
+		Index.NOT_ANALYZED 不分词，把整个内容作为一个词建立索引
+ 
+Store是影响搜索出的结构是否有指定属性的原始内容。
+Index是影响是否可以从这个属性中查询，或者是查询时可以查其中的某些词，还是要把整个内容作为一个词进行查询。
+ 
+2、从索引库中搜索的执行过程（QueryParse、TopDocs、ScoreDoc）
+	在进行搜索时，先在词汇表中查找，得到符合条件的文档编号列表。再根据文档编号真正的取数据（Document）
+	 操作步骤如下：
+	（1）、把要查询字符串转为Query对象。这就像在Hiberante总是用HQL查询时，也要先调用Session.createQuery(hql)转成Hibernate的Query对象一样。把查询字符串转换成Query是使用QueryParser，或者使用MultiFieldQueryParser。查询字符串也要先经过Analyzer（分词器）。要求检索时使用Analyzer要与监理索引使用的Analzyer要一致，否则可能搜索不出正确的结果。
+	 （2）、调用IndexSearcher.search()，进行查询，得到结果。此方法返回未TopDocs，是包含结果的多个信息的一个对象。其中有totalHits代表记录数，ScoreDoc的数组。ScoreDoc是代表一个结果的相关度得分与文档编号等信息的对象。
+	（3）、取出要用到的数据列表。调用IndexSearcher.doc(scoreDoc.doc)以取出指定编号对应的Document数据，在分页时要用到：一次只取一页的数据。
